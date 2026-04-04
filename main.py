@@ -29,43 +29,57 @@ def main():
 
 
 def generate_content(client, messages, verbose):
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=messages,
-        config=types.GenerateContentConfig(tools=[available_functions], system_instruction=system_prompt),
-    )
-    if not response.usage_metadata:
-        raise RuntimeError("Gemini API response appears to be malformed")
+    response_candidates = []
 
-    if response.function_calls:
-        function_responses = []
-        for function_call in response.function_calls:
-            print(f"Calling function: {function_call.name}({function_call.args})")
-            function_call_result = call_function(function_call, verbose)
+    for _ in range(20):
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=messages,
+            config=types.GenerateContentConfig(tools=[available_functions], system_instruction=system_prompt),
+        )
+        
+        response_candidates.append(response.candidates[0].content)
 
-            if not function_call_result.parts:
-                raise Exception("Function returned empty parts list")
+        if response_candidates:
+            for candidate in response_candidates:
+                messages.append(candidate)
 
-            part = function_call_result.parts[0]
+        if not response.usage_metadata:
+            raise RuntimeError("Gemini API response appears to be malformed")
 
-            if part.function_response is None or not isinstance(part.function_response, types.FunctionResponse):
-                raise Exception("Function response is None or call_function returned wrong type")
-            
-            if function_call_result.parts[0].function_response.response == None:
-                raise Exception("Response is None")
+        if response.function_calls:
+            function_responses = []
+            for function_call in response.function_calls:
+                # print(f"Calling function: {function_call.name}({function_call.args})")
+                function_call_result = call_function(function_call, verbose)
 
-            function_responses.extend(part.function_response.response)
+                if not function_call_result.parts:
+                    raise Exception("Function returned empty parts list")
+
+                part = function_call_result.parts[0]
+
+                if part.function_response is None or not isinstance(part.function_response, types.FunctionResponse):
+                    raise Exception("Function response is None or call_function returned wrong type")
+                
+                if function_call_result.parts[0].function_response.response == None:
+                    raise Exception("Response is None")
+
+                function_responses.append(part)
+                
+                if verbose:
+                    print(f"-> {function_call_result.parts[0].function_response.response}")
+
+        else:
             if verbose:
-                print(f"-> {function_call_result.parts[0].function_response.response}")
+                print("Prompt tokens:", response.usage_metadata.prompt_token_count)
+                print("Response tokens:", response.usage_metadata.candidates_token_count)
+            print("Final response:")
+            print(response.text)
+            return None
 
-    else:
-        if verbose:
-            print("Prompt tokens:", response.usage_metadata.prompt_token_count)
-            print("Response tokens:", response.usage_metadata.candidates_token_count)
-        print("Response:")
-        print(response.text)
-
+        messages.append(types.Content(role="user", parts=function_responses))
     
+    print("Something went wrong, maximum iterations reached")
 
 if __name__ == "__main__":
     main()
