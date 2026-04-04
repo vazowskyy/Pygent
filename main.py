@@ -7,6 +7,7 @@ from google.genai import types
 
 from prompts import system_prompt
 from call_function import available_functions
+from call_function import call_function
 
 def main():
     parser = argparse.ArgumentParser(description="AI Code Assistant")
@@ -37,8 +38,26 @@ def generate_content(client, messages, verbose):
         raise RuntimeError("Gemini API response appears to be malformed")
 
     if response.function_calls:
+        function_responses = []
         for function_call in response.function_calls:
             print(f"Calling function: {function_call.name}({function_call.args})")
+            function_call_result = call_function(function_call, verbose)
+
+            if not function_call_result.parts:
+                raise Exception("Function returned empty parts list")
+
+            part = function_call_result.parts[0]
+
+            if part.function_response is None or not isinstance(part.function_response, types.FunctionResponse):
+                raise Exception("Function response is None or call_function returned wrong type")
+            
+            if function_call_result.parts[0].function_response.response == None:
+                raise Exception("Response is None")
+
+            function_responses.extend(part.function_response.response)
+            if verbose:
+                print(f"-> {function_call_result.parts[0].function_response.response}")
+
     else:
         if verbose:
             print("Prompt tokens:", response.usage_metadata.prompt_token_count)
@@ -46,7 +65,7 @@ def generate_content(client, messages, verbose):
         print("Response:")
         print(response.text)
 
-
+    
 
 if __name__ == "__main__":
     main()
